@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,7 +65,11 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+#define MAX_SAMPLES 11  // Мы будем искать медианное значение 10-ти импульсов
+volatile uint8_t isProccess = 0;
+uint32_t frequencies[MAX_SAMPLES];
+uint32_t capture_count = 0;
+uint32_t lastInterruptTime = 0;
 /* USER CODE END 0 */
 
 /**
@@ -100,9 +105,6 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start_IT(&htim1);
-  HAL_TIM_Base_Start(&htim2);
-  HAL_TIM_Base_Start(&htim3);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -176,7 +178,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 7199;
   htim1.Init.CounterMode = TIM_COUNTERMODE_DOWN;
-  htim1.Init.Period = 9999;
+  htim1.Init.Period = 999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -346,6 +348,7 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -353,6 +356,16 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin : button_Pin */
+  GPIO_InitStruct.Pin = button_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(button_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -362,19 +375,81 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim == &htim1){
-	    char msg[64];
-	    int len = snprintf(msg, sizeof(msg), "РАБОТАЕТ!!!\r\n");
-	    HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
+		HAL_TIM_Base_Stop_IT(&htim1);
+		if(capture_count < MAX_SAMPLES){
+			uint16_t count_main = __HAL_TIM_GET_COUNTER(&htim2); // значение в счётчике таймера №2
+			uint16_t count_secondary = __HAL_TIM_GET_COUNTER(&htim3); // значение в счётчике таймера №3
+			uint16_t arr = __HAL_TIM_GET_AUTORELOAD(&htim2); // значение переполнения таймера №2 (65535)
+			frequencies[capture_count] = (count_main + (count_secondary * (arr + 1)))*10; // вычисляем
+
+			// uint32_t freq = TIM2->CNT + (TIM3->CNT << 16); // это вариант на регистрах, предыдущие четыре строчки можно закомментить
 
 
-        HAL_TIM_Base_Stop_IT(&htim1);
+			//////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
+			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
+			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
+			capture_count++;
+			HAL_TIM_Base_Start_IT(&htim1);
 
-        //////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
-        __HAL_TIM_SET_COUNTER(&htim2, 0x0000);
-        __HAL_TIM_SET_COUNTER(&htim3, 0x0000);
-        HAL_TIM_Base_Start_IT(&htim1);
+		}
+
+		else{
+			HAL_TIM_Base_Stop_IT(&htim1);                 // Остановить
+			HAL_TIM_Base_Stop(&htim2);
+			HAL_TIM_Base_Stop(&htim3);
+
+			__HAL_TIM_SET_COUNTER(&htim1, 0x0000);             // обнуляем таймеры
+			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
+			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
+
+
+
+			// Сортировка массива (сортировка вставками для маленького массива)
+			for (int i = 1; i < MAX_SAMPLES; i++) {
+				uint32_t key = frequencies[i];
+				int j = i - 1;
+				while (j >= 0 && frequencies[j] > key) {
+					frequencies[j + 1] = frequencies[j];
+					j--;
+				}
+				frequencies[j + 1] = key;
+			}
+
+			// Медиана (середина отсортированного массива)
+			uint32_t frequency_median = frequencies[MAX_SAMPLES / 2];
+
+
+
+			///////////////////////// вывод инфы ///////////////////////////////
+			// Передаём частоту в UART
+			char msg[64];
+			int len = snprintf(msg, sizeof(msg), "%lu\r\n", frequency_median);
+			HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
+
+			isProccess = 0;
+			capture_count = 0;
+		}
+	}
+}
+
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	uint32_t now = HAL_GetTick();
+	if (now - lastInterruptTime < 200) return;
+	lastInterruptTime = now;
+	if(isProccess) return;
+
+  if (GPIO_Pin == GPIO_PIN_1 && !isProccess){
+		isProccess = 1;
+		HAL_TIM_Base_Start_IT(&htim1);
+		HAL_TIM_Base_Start(&htim2);
+		HAL_TIM_Base_Start(&htim3);
   }
 }
+
+
+
 /* USER CODE END 4 */
 
 /**

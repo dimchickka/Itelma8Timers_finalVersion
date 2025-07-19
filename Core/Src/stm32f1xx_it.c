@@ -20,10 +20,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f1xx_it.h"
-#include <stdio.h>
-#include <string.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <string.h>
+extern volatile uint8_t isProccess;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -202,6 +203,20 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles EXTI line1 interrupt.
+  */
+void EXTI1_IRQHandler(void)
+{
+
+  /* USER CODE BEGIN EXTI1_IRQn 0 */
+  /* USER CODE END EXTI1_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(button_Pin);
+  /* USER CODE BEGIN EXTI1_IRQn 1 */
+
+  /* USER CODE END EXTI1_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM1 update interrupt.
   */
 void TIM1_UP_IRQHandler(void)
@@ -218,5 +233,4 @@ void TIM1_UP_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
 /* USER CODE END 1 */
