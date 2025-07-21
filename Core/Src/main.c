@@ -66,10 +66,33 @@ static void MX_TIM3_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #define MAX_SAMPLES 11  // Мы будем искать медианное значение 10-ти импульсов
+#define NUMBER_OF_SENSORS 8 //кол-во датчиков
 volatile uint8_t isProccess = 0;
-uint32_t frequencies[MAX_SAMPLES];
+uint32_t frequenciesForCurrentSensor[MAX_SAMPLES];
 uint32_t capture_count = 0;
 uint32_t lastInterruptTime = 0;
+uint8_t currentSensor = 0;
+uint32_t frequenciesResults[NUMBER_OF_SENSORS];
+void SelectMuxChannel(uint8_t channel);
+void PrintSensorFrequencies();
+
+typedef struct {
+    uint8_t s0, s1, s2, s3;  // Управление мультиплексором
+    GPIO_TypeDef* power_port; // Порт питания датчика
+    uint16_t power_pin;       // Пин питания датчика
+} MuxChannelConfig;
+// Массив для выбора каналов [S0, S1, S2, S3] (канал 0-7)
+// Формат: [S0, S1, S2, S3, GPIO_PORT, GPIO_PIN]
+const MuxChannelConfig muxChannels[16]  = {
+    {0, 0, 0, 0, GPIOB, GPIO_PIN_12},  // Канал 0 → PB12 (1-й датчик)
+    {1, 0, 0, 0, GPIOB, GPIO_PIN_13},  // Канал 1 → PB13 (2-й датчик)
+    {0, 1, 0, 0, GPIOB, GPIO_PIN_14},  // Канал 2 → PB14
+    {1, 1, 0, 0, GPIOB, GPIO_PIN_15},  // Канал 3 → PB15
+    {0, 0, 1, 0, GPIOA, GPIO_PIN_8},   // Канал 4 → PA8
+    {1, 0, 1, 0, GPIOA, GPIO_PIN_9},   // Канал 5 → PA9
+    {0, 1, 1, 0, GPIOA, GPIO_PIN_10},  // Канал 6 → PA10
+    {1, 1, 1, 0, GPIOA, GPIO_PIN_11},  // Канал 7 → PA11
+};
 /* USER CODE END 0 */
 
 /**
@@ -356,12 +379,41 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
+                          |GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : button_Pin */
   GPIO_InitStruct.Pin = button_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(button_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA4 PA5 PA6 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA8 PA9 PA10 PA11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
@@ -380,7 +432,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 			uint16_t count_main = __HAL_TIM_GET_COUNTER(&htim2); // значение в счётчике таймера №2
 			uint16_t count_secondary = __HAL_TIM_GET_COUNTER(&htim3); // значение в счётчике таймера №3
 			uint16_t arr = __HAL_TIM_GET_AUTORELOAD(&htim2); // значение переполнения таймера №2 (65535)
-			frequencies[capture_count] = (count_main + (count_secondary * (arr + 1)))*10; // вычисляем
+			frequenciesForCurrentSensor[capture_count] = (count_main + (count_secondary * (arr + 1)))*10; // вычисляем
 
 			// uint32_t freq = TIM2->CNT + (TIM3->CNT << 16); // это вариант на регистрах, предыдущие четыре строчки можно закомментить
 
@@ -406,28 +458,39 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 			// Сортировка массива (сортировка вставками для маленького массива)
 			for (int i = 1; i < MAX_SAMPLES; i++) {
-				uint32_t key = frequencies[i];
+				uint32_t key = frequenciesForCurrentSensor[i];
 				int j = i - 1;
-				while (j >= 0 && frequencies[j] > key) {
-					frequencies[j + 1] = frequencies[j];
+				while (j >= 0 && frequenciesForCurrentSensor[j] > key) {
+					frequenciesForCurrentSensor[j + 1] = frequenciesForCurrentSensor[j];
 					j--;
 				}
-				frequencies[j + 1] = key;
+				frequenciesForCurrentSensor[j + 1] = key;
 			}
 
 			// Медиана (середина отсортированного массива)
-			uint32_t frequency_median = frequencies[MAX_SAMPLES / 2];
+			uint32_t frequency_median = frequenciesForCurrentSensor[MAX_SAMPLES / 2];
 
-
-
-			///////////////////////// вывод инфы ///////////////////////////////
-			// Передаём частоту в UART
-			char msg[64];
-			int len = snprintf(msg, sizeof(msg), "%lu\r\n", frequency_median);
-			HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
-
-			isProccess = 0;
+			frequenciesResults[currentSensor] = frequency_median;
 			capture_count = 0;
+			currentSensor++;
+
+			if(currentSensor < NUMBER_OF_SENSORS){
+				SelectMuxChannel(currentSensor);
+				HAL_TIM_Base_Start_IT(&htim1);
+				HAL_TIM_Base_Start(&htim2);
+				HAL_TIM_Base_Start(&htim3);
+			}
+
+			else{
+				PrintSensorFrequencies();
+			    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, GPIO_PIN_RESET);
+			    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, GPIO_PIN_RESET);
+			    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
+			    capture_count = 0;
+			    currentSensor = 0;
+				isProccess = 0;
+			}
+
 		}
 	}
 }
@@ -442,6 +505,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   if (GPIO_Pin == GPIO_PIN_1 && !isProccess){
 		isProccess = 1;
+	    char buffer[64]; // Буфер для формирования строки
+	    int len = snprintf(buffer, sizeof(buffer), "Counter is started\r\n");
+	    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+		SelectMuxChannel(currentSensor);
+
 		HAL_TIM_Base_Start_IT(&htim1);
 		HAL_TIM_Base_Start(&htim2);
 		HAL_TIM_Base_Start(&htim3);
@@ -449,6 +517,42 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 
+void SelectMuxChannel(uint8_t channel) {
+    // 1. Отключаем все датчики (опционально, если нужно строгое управление)
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
+
+    // 2. Устанавливаем канал мультиплексора
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, muxChannels[channel].s0 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, muxChannels[channel].s1 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, muxChannels[channel].s2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, muxChannels[channel].s3 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    // 3. Включаем питание датчика, если указаны порт и пин
+    if (muxChannels[channel].power_port != NULL) {
+        HAL_GPIO_WritePin(muxChannels[channel].power_port, muxChannels[channel].power_pin, GPIO_PIN_SET);
+    }
+
+    // 4. Задержка для стабилизации
+    for (volatile int i = 0; i < 10000; i++);
+}
+
+
+void PrintSensorFrequencies() {
+    char buffer[64]; // Буфер для формирования строки
+
+    for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
+        // Форматируем строку для каждого датчика
+        int len = snprintf(buffer, sizeof(buffer), "Датчик %d: частота %lu Гц\r\n",
+                          i + 1, frequenciesResults[i]);
+
+        // Отправляем в UART
+        HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+    }
+
+    int len = snprintf(buffer, sizeof(buffer), "-------------------------\r\n\r\n");
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+}
 
 /* USER CODE END 4 */
 
