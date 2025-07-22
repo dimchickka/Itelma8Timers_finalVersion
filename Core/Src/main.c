@@ -68,11 +68,11 @@ static void MX_TIM3_Init(void);
 #define MAX_SAMPLES 11  // Мы будем искать медианное значение 10-ти импульсов
 #define NUMBER_OF_SENSORS 8 //кол-во датчиков
 volatile uint8_t isProccess = 0;
-uint32_t frequenciesForCurrentSensor[MAX_SAMPLES];
-uint32_t capture_count = 0;
-uint32_t lastInterruptTime = 0;
-uint8_t currentSensor = 0;
-uint32_t frequenciesResults[NUMBER_OF_SENSORS];
+volatile uint32_t frequenciesForCurrentSensor[MAX_SAMPLES];
+volatile uint32_t capture_count = 0;
+volatile uint32_t lastInterruptTime = 0;
+volatile uint8_t currentSensor = 0;
+volatile uint32_t frequenciesResults[NUMBER_OF_SENSORS];
 void SelectMuxChannel(uint8_t channel);
 void PrintSensorFrequencies();
 
@@ -201,7 +201,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 7199;
   htim1.Init.CounterMode = TIM_COUNTERMODE_DOWN;
-  htim1.Init.Period = 999;
+  htim1.Init.Period = 99;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -428,20 +428,26 @@ static void MX_GPIO_Init(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim == &htim1){
 		HAL_TIM_Base_Stop_IT(&htim1);
+		HAL_TIM_Base_Stop(&htim2);
+		HAL_TIM_Base_Stop(&htim3);
 		if(capture_count < MAX_SAMPLES){
 			uint16_t count_main = __HAL_TIM_GET_COUNTER(&htim2); // значение в счётчике таймера №2
 			uint16_t count_secondary = __HAL_TIM_GET_COUNTER(&htim3); // значение в счётчике таймера №3
 			uint16_t arr = __HAL_TIM_GET_AUTORELOAD(&htim2); // значение переполнения таймера №2 (65535)
-			frequenciesForCurrentSensor[capture_count] = (count_main + (count_secondary * (arr + 1)))*10; // вычисляем
+			frequenciesForCurrentSensor[capture_count] = (count_main + (count_secondary * (arr + 1)))*100; // вычисляем
 
 			// uint32_t freq = TIM2->CNT + (TIM3->CNT << 16); // это вариант на регистрах, предыдущие четыре строчки можно закомментить
 
-
+			char debug[64];
+			snprintf(debug, sizeof(debug), "Sample = %lu\r\n", frequenciesForCurrentSensor[capture_count]);
+			HAL_UART_Transmit(&huart2, (uint8_t*)debug, strlen(debug), HAL_MAX_DELAY);
 			//////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
 			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
 			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
 			capture_count++;
 			HAL_TIM_Base_Start_IT(&htim1);
+			HAL_TIM_Base_Start(&htim2);
+			HAL_TIM_Base_Start(&htim3);
 
 		}
 
@@ -450,7 +456,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 			HAL_TIM_Base_Stop(&htim2);
 			HAL_TIM_Base_Stop(&htim3);
 
-			__HAL_TIM_SET_COUNTER(&htim1, 0x0000);             // обнуляем таймеры
+           // обнуляем таймеры
 			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
 			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
 
@@ -543,7 +549,7 @@ void PrintSensorFrequencies() {
 
     for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
         // Форматируем строку для каждого датчика
-        int len = snprintf(buffer, sizeof(buffer), "Датчик %d: частота %lu Гц\r\n",
+        int len = snprintf(buffer, sizeof(buffer), "Датчик %d: %lu\r\n",
                           i + 1, frequenciesResults[i]);
 
         // Отправляем в UART

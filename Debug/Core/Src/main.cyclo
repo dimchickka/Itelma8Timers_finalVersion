@@ -6,7 +6,7 @@
 ../Core/Src/main.c:339:13:MX_USART2_UART_Init	2
 ../Core/Src/main.c:372:13:MX_GPIO_Init	1
 ../Core/Src/main.c:428:6:HAL_TIM_PeriodElapsedCallback	7
-../Core/Src/main.c:499:6:HAL_GPIO_EXTI_Callback	5
-../Core/Src/main.c:520:6:SelectMuxChannel	3
-../Core/Src/main.c:541:6:PrintSensorFrequencies	2
-../Core/Src/main.c:563:6:Error_Handler	1
+../Core/Src/main.c:505:6:HAL_GPIO_EXTI_Callback	5
+../Core/Src/main.c:526:6:SelectMuxChannel	3
+../Core/Src/main.c:547:6:PrintSensorFrequencies	2
+../Core/Src/main.c:569:6:Error_Handler	1
