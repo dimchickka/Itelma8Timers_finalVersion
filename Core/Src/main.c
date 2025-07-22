@@ -66,6 +66,7 @@ static void MX_TIM2_Init(void);
 #define MAX_SAMPLES 11  // Мы будем искать медианное значение 10-ти импульсов
 #define NUMBER_OF_SENSORS 8 //кол-во датчиков
 volatile uint8_t isProccess = 0;
+volatile uint32_t lastInterruptTimeForPerodElapsedCallback = 0;
 uint32_t frequenciesForCurrentSensor[MAX_SAMPLES];
 uint32_t capture_count = 0;
 uint32_t lastInterruptTime = 0;
@@ -196,9 +197,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 7199;
+  htim1.Init.Prescaler = 719;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 9999;
+  htim1.Init.Period = 49999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -376,18 +377,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
     int len = snprintf(buffer, sizeof(buffer), "yes\r\n");
     HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
 	if(htim == &htim2){
+	    uint32_t now = HAL_GetTick();
+
+	    if ((now - lastInterruptTimeForPerodElapsedCallback) < 1)  // 1 мс фильтр от помех
+	        return; // помеха — выходим
+	    lastInterruptTimeForPerodElapsedCallback = now;
+
 		char buffer1[64]; // Буфер для формирования строки
 		    int len1 = snprintf(buffer1, sizeof(buffer), "gaga\r\n");
 		    HAL_UART_Transmit(&huart2, (uint8_t*)buffer1, len1, HAL_MAX_DELAY);
 		HAL_TIM_Base_Stop_IT(&htim1);
 		HAL_TIM_Base_Stop_IT(&htim2);
+
+		__HAL_TIM_SET_COUNTER(&htim1, 0x0000);
+		__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
 		if(capture_count < MAX_SAMPLES){
 			//uint32_t countFirstTimer = __HAL_TIM_GET_COUNTER(&htim1); // значение в счётчике таймера №1
 			char buffer2[64]; // Буфер для формирования строки
 
 			int len2 = snprintf(buffer2, sizeof(buffer2), "count = %lu\r\n", countFirstTimer);
 			HAL_UART_Transmit(&huart2, (uint8_t*)buffer2, len2, HAL_MAX_DELAY);
-			frequenciesForCurrentSensor[capture_count] = 10000/countFirstTimer; // вычисляем
+			frequenciesForCurrentSensor[capture_count] = 100000/countFirstTimer; // вычисляем
 
 
 			//////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
