@@ -44,7 +44,6 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
@@ -58,7 +57,6 @@ static void MX_GPIO_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -126,7 +124,6 @@ int main(void)
   MX_TIM1_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
-  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   /* USER CODE END 2 */
 
@@ -200,8 +197,8 @@ static void MX_TIM1_Init(void)
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 7199;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_DOWN;
-  htim1.Init.Period = 999;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 9999;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -242,7 +239,6 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
@@ -252,23 +248,18 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
+  htim2.Init.Period = 1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_ETRMODE2;
-  sClockSourceConfig.ClockPolarity = TIM_CLOCKPOLARITY_NONINVERTED;
-  sClockSourceConfig.ClockPrescaler = TIM_CLOCKPRESCALER_DIV1;
-  sClockSourceConfig.ClockFilter = 0;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_GATED;
-  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_EXTERNAL1;
+  sSlaveConfig.InputTrigger = TIM_TS_ETRF;
+  sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_NONINVERTED;
+  sSlaveConfig.TriggerPrescaler = TIM_TRIGGERPRESCALER_DIV1;
+  sSlaveConfig.TriggerFilter = 0;
   if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
@@ -282,52 +273,6 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_EXTERNAL1;
-  sSlaveConfig.InputTrigger = TIM_TS_ITR1;
-  if (HAL_TIM_SlaveConfigSynchro(&htim3, &sSlaveConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -426,33 +371,40 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	if(htim == &htim1){
+	uint32_t countFirstTimer = __HAL_TIM_GET_COUNTER(&htim1); // значение в счётчике таймера №1
+    char buffer[64]; // Буфер для формирования строки
+    int len = snprintf(buffer, sizeof(buffer), "yes\r\n");
+    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+	if(htim == &htim2){
+		char buffer1[64]; // Буфер для формирования строки
+		    int len1 = snprintf(buffer1, sizeof(buffer), "gaga\r\n");
+		    HAL_UART_Transmit(&huart2, (uint8_t*)buffer1, len1, HAL_MAX_DELAY);
 		HAL_TIM_Base_Stop_IT(&htim1);
+		HAL_TIM_Base_Stop_IT(&htim2);
 		if(capture_count < MAX_SAMPLES){
-			uint16_t count_main = __HAL_TIM_GET_COUNTER(&htim2); // значение в счётчике таймера №2
-			uint16_t count_secondary = __HAL_TIM_GET_COUNTER(&htim3); // значение в счётчике таймера №3
-			uint16_t arr = __HAL_TIM_GET_AUTORELOAD(&htim2); // значение переполнения таймера №2 (65535)
-			frequenciesForCurrentSensor[capture_count] = (count_main + (count_secondary * (arr + 1)))*10; // вычисляем
+			//uint32_t countFirstTimer = __HAL_TIM_GET_COUNTER(&htim1); // значение в счётчике таймера №1
+			char buffer2[64]; // Буфер для формирования строки
 
-			// uint32_t freq = TIM2->CNT + (TIM3->CNT << 16); // это вариант на регистрах, предыдущие четыре строчки можно закомментить
+			int len2 = snprintf(buffer2, sizeof(buffer2), "count = %lu\r\n", countFirstTimer);
+			HAL_UART_Transmit(&huart2, (uint8_t*)buffer2, len2, HAL_MAX_DELAY);
+			frequenciesForCurrentSensor[capture_count] = 10000/countFirstTimer; // вычисляем
 
 
 			//////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
+			__HAL_TIM_SET_COUNTER(&htim1, 0x0000);
 			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
-			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
 			capture_count++;
 			HAL_TIM_Base_Start_IT(&htim1);
+			HAL_TIM_Base_Start_IT(&htim2);
 
 		}
 
 		else{
 			HAL_TIM_Base_Stop_IT(&htim1);                 // Остановить
-			HAL_TIM_Base_Stop(&htim2);
-			HAL_TIM_Base_Stop(&htim3);
+			HAL_TIM_Base_Stop_IT(&htim2);
 
 			__HAL_TIM_SET_COUNTER(&htim1, 0x0000);             // обнуляем таймеры
 			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
-			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
 
 
 
@@ -477,8 +429,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 			if(currentSensor < NUMBER_OF_SENSORS){
 				SelectMuxChannel(currentSensor);
 				HAL_TIM_Base_Start_IT(&htim1);
-				HAL_TIM_Base_Start(&htim2);
-				HAL_TIM_Base_Start(&htim3);
+				HAL_TIM_Base_Start_IT(&htim2);
 			}
 
 			else{
@@ -491,6 +442,33 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 				isProccess = 0;
 			}
 
+		}
+	}
+	else if(htim == &htim1){
+		char buffer1[64]; // Буфер для формирования строки
+		    int len1 = snprintf(buffer1, sizeof(buffer), "lala\r\n");
+		    HAL_UART_Transmit(&huart2, (uint8_t*)buffer1, len1, HAL_MAX_DELAY);
+		HAL_TIM_Base_Stop_IT(&htim1);                 // Остановить
+		HAL_TIM_Base_Stop_IT(&htim2);
+
+		__HAL_TIM_SET_COUNTER(&htim1, 0x0000);             // обнуляем таймеры
+		__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
+		capture_count = 0;
+		frequenciesResults[currentSensor] = 0;
+		currentSensor++;
+		if(currentSensor < NUMBER_OF_SENSORS){
+			SelectMuxChannel(currentSensor);
+			HAL_TIM_Base_Start_IT(&htim1);
+			HAL_TIM_Base_Start_IT(&htim2);
+		}
+		else{
+			PrintSensorFrequencies();
+		    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, GPIO_PIN_RESET);
+		    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, GPIO_PIN_RESET);
+		    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
+		    capture_count = 0;
+		    currentSensor = 0;
+			isProccess = 0;
 		}
 	}
 }
@@ -511,8 +489,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		SelectMuxChannel(currentSensor);
 
 		HAL_TIM_Base_Start_IT(&htim1);
-		HAL_TIM_Base_Start(&htim2);
-		HAL_TIM_Base_Start(&htim3);
+		HAL_TIM_Base_Start_IT(&htim2);
   }
 }
 
