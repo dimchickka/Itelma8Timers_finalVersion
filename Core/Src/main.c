@@ -73,6 +73,7 @@ volatile uint32_t capture_count = 0;
 volatile uint32_t lastInterruptTime = 0;
 volatile uint8_t currentSensor = 0;
 volatile uint32_t frequenciesResults[NUMBER_OF_SENSORS];
+uint8_t rxBuffer[1];
 void SelectMuxChannel(uint8_t channel);
 void PrintSensorFrequencies();
 
@@ -132,6 +133,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_UART_Receive_IT(&huart2, rxBuffer, 1);
   while (1)
   {
     /* USER CODE END WHILE */
@@ -386,7 +388,8 @@ static void MX_GPIO_Init(void)
                           |GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, led1_Pin|led2_Pin|led3_Pin|led4_Pin
+                          |GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : button_Pin */
   GPIO_InitStruct.Pin = button_Pin;
@@ -401,8 +404,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
+  /*Configure GPIO pins : led1_Pin led2_Pin led3_Pin led4_Pin
+                           PB12 PB13 PB14 PB15 */
+  GPIO_InitStruct.Pin = led1_Pin|led2_Pin|led3_Pin|led4_Pin
+                          |GPIO_PIN_12|GPIO_PIN_13|GPIO_PIN_14|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -438,9 +443,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 			// uint32_t freq = TIM2->CNT + (TIM3->CNT << 16); // это вариант на регистрах, предыдущие четыре строчки можно закомментить
 
-			char debug[64];
-			snprintf(debug, sizeof(debug), "Sample = %lu\r\n", frequenciesForCurrentSensor[capture_count]);
-			HAL_UART_Transmit(&huart2, (uint8_t*)debug, strlen(debug), HAL_MAX_DELAY);
+//			char debug[64];
+//			snprintf(debug, sizeof(debug), "Sample = %lu\r\n", frequenciesForCurrentSensor[capture_count]);
+//			HAL_UART_Transmit(&huart2, (uint8_t*)debug, strlen(debug), HAL_MAX_DELAY);
 			//////////////// обнуляем счётчики и рестартуем таймер №1 /////////////////
 			__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
 			__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
@@ -511,9 +516,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
   if (GPIO_Pin == GPIO_PIN_1 && !isProccess){
 		isProccess = 1;
-	    char buffer[64]; // Буфер для формирования строки
-	    int len = snprintf(buffer, sizeof(buffer), "Counter is started\r\n");
-	    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+	   // char buffer[64]; // Буфер для формирования строки
+//	    int len = snprintf(buffer, sizeof(buffer), "Counter is started\r\n");
+	   // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
 		SelectMuxChannel(currentSensor);
 
 		HAL_TIM_Base_Start_IT(&htim1);
@@ -549,16 +554,54 @@ void PrintSensorFrequencies() {
 
     for (int i = 0; i < NUMBER_OF_SENSORS; i++) {
         // Форматируем строку для каждого датчика
-        int len = snprintf(buffer, sizeof(buffer), "Датчик %d: %lu\r\n",
+        int len = snprintf(buffer, sizeof(buffer), "sensor%d:%lu\r\n",
                           i + 1, frequenciesResults[i]);
 
         // Отправляем в UART
         HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
     }
 
-    int len = snprintf(buffer, sizeof(buffer), "-------------------------\r\n\r\n");
-    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
+    //int len = snprintf(buffer, sizeof(buffer), "-------------------------\r\n\r\n");
+   // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, len, HAL_MAX_DELAY);
 }
+
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart == &huart2)
+    {
+        // Преобразование ASCII символа '1'...'4' в число 1...4
+        if (rxBuffer[0] >= '1' && rxBuffer[0] <= '4') {
+            uint8_t ledNumber = rxBuffer[0] - '0'; // '1' -> 1, '2' -> 2, и т.д.
+
+            // Сброс всех светодиодов
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+
+            // Включение нужного светодиода
+            switch (ledNumber) {
+                case 1:
+                    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+                    break;
+                case 2:
+                    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+                    break;
+                case 3:
+                    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+                    break;
+                case 4:
+                    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+                    break;
+            }
+        }
+
+        // Перезапуск приёма
+        HAL_UART_Receive_IT(&huart2, rxBuffer, 1);
+    }
+}
+
 
 /* USER CODE END 4 */
 
